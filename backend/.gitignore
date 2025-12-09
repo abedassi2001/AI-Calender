@@ -1,0 +1,49 @@
+# Flutter build
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+pubspec.lock
+android/.gradle/
+android/local.properties
+ios/Pods/
+windows/flutter/
+linux/flutter/
+macos/Flutter/ephemeral/
+
+# IntelliJ / VSCode
+.idea/
+.vscode/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python backend
+__pycache__/
+*.pyc
+env/
+venv/
+.venv/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# Secrets
+.env
+*.env
+.env.*
+!.env.example     # keep a public template ONLY
+
+# Firebase keys (if used)
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+
+# Logs
+*.log
+
+# Generated files
+*.lock
