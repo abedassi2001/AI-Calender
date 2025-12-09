@@ -1,16 +1,8 @@
-nstall FastAPI + Dependencies
-
-
 fastapi
 uvicorn
 sqlalchemy
 psycopg2-binary
 python-dotenv
 pydantic
+email-validator
 openai
-
-
-
-Install everything:
-
-pip install -r requirements.txt
