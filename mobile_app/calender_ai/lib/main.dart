@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'app.dart';
+import 'presentation/pages/calendar_page.dart';
 
 void main() => runApp(const MyApp());
 
@@ -85,7 +86,9 @@ class _HomePageState extends State<HomePage> {
           width: double.infinity,
           child: ElevatedButton.icon(
             onPressed: () {
-              // TODO: open calendar / route to calendar view
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const CalendarPage()),
+              );
             },
             icon: const Icon(Icons.calendar_month_outlined),
             label: const Text('Open Calendar'),
