@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'app.dart';
+import 'data/services/calendar_service.dart';
 import 'presentation/pages/calendar_page.dart';
+import 'presentation/pages/login_page.dart';
 
 void main() => runApp(const MyApp());
 
@@ -13,13 +15,17 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'AI Calendar Assistant',
       theme: AppTheme.light(),
-      home: const HomePage(),
+      home: const LoginPage(),
     );
   }
 }
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  final String? authToken;
+  final CalendarService calendarService;
+
+  HomePage({super.key, this.authToken, CalendarService? calendarService})
+      : calendarService = calendarService ?? CalendarService(authToken: authToken);
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -29,12 +35,47 @@ class _HomePageState extends State<HomePage> {
   final _controller = TextEditingController(
     text: 'Study for Algorithms exam tomorrow 3–5 PM with a 15m break',
   );
+  late final CalendarService _service;
+
+  bool _isLoading = false;
+  String _title = 'Study Session';
+  String _timeRange = 'Tomorrow · 3:00 PM – 5:00 PM';
+  String _location = 'Library, 2nd Floor';
+  String _note = 'Includes 15m break; remind me 20m before.';
+  List<String> _timeline = const [
+    '3:00 PM  Deep focus block',
+    '4:00 PM  Break + review notes',
+    '4:15 PM  Flashcards & practice',
+    '5:00 PM  Wrap & summary',
+  ];
+
+  @override
+  void initState() {
+    _service = widget.calendarService;
+    super.initState();
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: 'Sign out',
+            onPressed: () {
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const LoginPage()),
+                (route) => false,
+              );
+            },
+            icon: const Icon(Icons.logout),
+          ),
+        ],
+      ),
       body: Stack(
         children: [
           Container(
@@ -59,10 +100,14 @@ class _HomePageState extends State<HomePage> {
                   _promptField(theme),
                   const SizedBox(height: 14),
                   ElevatedButton(
-                    onPressed: () {
-                      // TODO: hook into AI generation
-                    },
-                    child: const Text('Generate with AI'),
+                    onPressed: _isLoading ? null : _onGeneratePressed,
+                    child: _isLoading
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                          )
+                        : const Text('Generate with AI'),
                   ),
                   const SizedBox(height: 18),
                   _sectionTitle('AI Preview'),
@@ -213,21 +258,21 @@ class _HomePageState extends State<HomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Study Session', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+            Text(_title, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: 6),
             Row(
-              children: const [
-                Icon(Icons.access_time, color: Color(0xFF5B7CFF)),
-                SizedBox(width: 8),
-                Text('Tomorrow · 3:00 PM – 5:00 PM'),
+              children: [
+                const Icon(Icons.access_time, color: Color(0xFF5B7CFF)),
+                const SizedBox(width: 8),
+                Text(_timeRange),
               ],
             ),
             const SizedBox(height: 6),
             Row(
-              children: const [
-                Icon(Icons.pin_drop_outlined, color: Color(0xFF5B7CFF)),
-                SizedBox(width: 8),
-                Text('Library, 2nd Floor'),
+              children: [
+                const Icon(Icons.pin_drop_outlined, color: Color(0xFF5B7CFF)),
+                const SizedBox(width: 8),
+                Text(_location),
               ],
             ),
             const SizedBox(height: 10),
@@ -238,10 +283,10 @@ class _HomePageState extends State<HomePage> {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
-                children: const [
-                  Icon(Icons.notes_outlined, color: Color(0xFF6B7280)),
-                  SizedBox(width: 8),
-                  Expanded(child: Text('Includes 15m break; remind me 20m before.')),
+                children: [
+                  const Icon(Icons.notes_outlined, color: Color(0xFF6B7280)),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(_note)),
                 ],
               ),
             ),
@@ -323,27 +368,20 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _timelineCard() {
-    final items = [
-      ('3:00 PM', 'Deep focus block'),
-      ('4:00 PM', 'Break + review notes'),
-      ('4:15 PM', 'Flashcards & practice'),
-      ('5:00 PM', 'Wrap & summary'),
-    ];
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          children: items
+          children: _timeline
               .map(
-                (e) => ListTile(
+                (line) => ListTile(
                   dense: true,
-                  leading: CircleAvatar(
+                  leading: const CircleAvatar(
                     radius: 18,
-                    backgroundColor: const Color(0xFFE9EDFF),
-                    child: const Icon(Icons.schedule, color: Color(0xFF5B7CFF)),
+                    backgroundColor: Color(0xFFE9EDFF),
+                    child: Icon(Icons.schedule, color: Color(0xFF5B7CFF)),
                   ),
-                  title: Text(e.$2, style: const TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: Text(e.$1),
+                  title: Text(line, style: const TextStyle(fontWeight: FontWeight.w600)),
                   trailing: const Icon(Icons.drag_indicator_rounded, color: Color(0xFFCBD5E1)),
                 ),
               )
@@ -361,6 +399,33 @@ class _HomePageState extends State<HomePage> {
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  Future<void> _onGeneratePressed() async {
+    final prompt = _controller.text.trim();
+    if (prompt.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please describe what you want to schedule')),
+      );
+      return;
+    }
+    setState(() => _isLoading = true);
+    try {
+      final result = await _service.generateSchedule(prompt);
+      setState(() {
+        _title = result.title;
+        _timeRange = result.timeRange;
+        _location = result.location;
+        _note = result.note;
+        _timeline = result.timeline.isEmpty ? ['No steps returned'] : result.timeline;
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to generate schedule: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 }
 
