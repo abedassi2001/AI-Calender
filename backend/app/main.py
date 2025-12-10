@@ -5,7 +5,7 @@
 
 
 from fastapi import FastAPI
-from app.api.routes import auth, chat, users, health
+from app.api.routes import auth, chat, users, health ,ai
 
 app = FastAPI(title="Flutter + FastAPI + OpenAI")
 
@@ -13,3 +13,4 @@ app.include_router(health.router)
 app.include_router(users.router)
 app.include_router(chat.router)
 app.include_router(auth.router)
+app.include_router(ai.router)
