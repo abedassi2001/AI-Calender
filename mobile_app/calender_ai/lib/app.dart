@@ -11,7 +11,6 @@ class AppTheme {
         primary: primary,
         secondary: Color(0xFF7BD7F3),
         surface: surface,
-        background: surface,
       ),
       scaffoldBackgroundColor: surface,
       useMaterial3: true,
