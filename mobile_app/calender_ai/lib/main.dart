@@ -304,7 +304,7 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: () {},
+                        onPressed: _onAddToCalendarPressed,
                     icon: const Icon(Icons.check_circle_outline),
                     label: const Text('Add to calendar'),
                   ),
@@ -425,6 +425,38 @@ class _HomePageState extends State<HomePage> {
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  String _buildVEventFromPreview() {
+    final description = '$_note\nTimeline:\n${_timeline.join('\n')}';
+    final buffer = StringBuffer();
+    buffer.writeln('BEGIN:VEVENT');
+    buffer.writeln('SUMMARY:${_title.replaceAll('\n', ' ')}');
+    buffer.writeln('DESCRIPTION:${description.replaceAll('\n', '\\n')}');
+    buffer.writeln('LOCATION:${_location.replaceAll('\n', ' ')}');
+    buffer.writeln('END:VEVENT');
+    return buffer.toString();
+  }
+
+  Future<void> _onAddToCalendarPressed() async {
+    final vevent = _buildVEventFromPreview();
+    // For now use a demo user id; replace with real user id from auth when available
+    const demoUserId = 'demo-user';
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Sending event to backend...')),
+    );
+
+    try {
+      await _service.addEvent(demoUserId, vevent);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Event added to calendar')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to add event: $e')),
+      );
     }
   }
 }

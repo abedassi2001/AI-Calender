@@ -58,5 +58,26 @@ class CalendarService {
 
     throw Exception('Server responded with ${response.statusCode}');
   }
+
+  /// Send a VEVENT string to the backend to create an event for [userId].
+  /// Returns true on success, otherwise throws an exception.
+  Future<bool> addEvent(String userId, String vevent) async {
+    final uri = Uri.parse('${ApiEndpoints.baseUrl}${ApiEndpoints.addEvent}');
+
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+      if (authToken != null && authToken!.isNotEmpty) 'Authorization': 'Bearer $authToken',
+    };
+
+    final body = jsonEncode({'user_id': userId, 'vevent': vevent});
+
+    final response = await _client.post(uri, headers: headers, body: body);
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return true;
+    }
+
+    throw Exception('Failed to add event: ${response.statusCode} ${response.body}');
+  }
 }
 
