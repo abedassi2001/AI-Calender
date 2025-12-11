@@ -22,11 +22,19 @@ class InMemoryDB:
     return user
   def add_event(self, user_id: str, event: Dict) -> None:
     user = self._users.get(user_id)
+
     if not user:
-      raise ValueError("User not found")
+        print("USER NOT FOUND. Available users:", list(self._users.keys()))
+        raise ValueError("User not found")
+
+    # Safe to print user.id now
+    print("USER STORED:", user.id)
+
     if not hasattr(user, 'events'):
-      user.events = []
+        user.events = []
+
     user.events.append(event)
+
 
 
 # Singleton in-memory store for this demo
