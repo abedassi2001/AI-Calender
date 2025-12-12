@@ -203,10 +203,20 @@ class _LoginPageState extends State<LoginPage> {
         email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text.trim(),
       );
-      // Example: pass token to other services; here we just navigate.
+      // Extract user ID from response - backend returns user.id as string
+      final userId = res.user?['id']?.toString();
+      if (userId == null || userId.isEmpty) {
+        throw Exception('User ID not found in response');
+      }
+      // ensure the calendar service has the auth token
+      _calendarService.authToken = res.token;
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => HomePage(calendarService: _calendarService, authToken: res.token)),
+        MaterialPageRoute(builder: (_) => HomePage(
+          calendarService: _calendarService,
+          authToken: res.token,
+          userId: userId,
+        )),
       );
     } catch (e) {
       setState(() => _error = e.toString());

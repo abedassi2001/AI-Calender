@@ -28,9 +28,15 @@ class ScheduleRequest(BaseModel):
   prompt: str
 
 
-class ScheduleResponse(BaseModel):
+class EventItem(BaseModel):
   title: str
-  time_range: str
-  location: str
-  note: str
-  timeline: List[str]
+  date: str  # YYYY-MM-DD
+  start_time: str  # HH:MM
+  end_time: str  # HH:MM
+  location: str = ""
+  description: str = ""
+
+
+class ScheduleResponse(BaseModel):
+  events: List[EventItem]
+  summary: str = ""  # Optional summary of what was generated

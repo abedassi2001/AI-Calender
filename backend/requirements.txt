@@ -6,3 +6,5 @@ python-dotenv
 pydantic
 email-validator
 openai
+google-generativeai
+requests

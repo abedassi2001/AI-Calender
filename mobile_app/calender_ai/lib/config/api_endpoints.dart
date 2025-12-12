@@ -3,6 +3,8 @@ class ApiEndpoints {
       String.fromEnvironment('API_BASE_URL', defaultValue: 'http://10.0.2.2:8000');
 
   static const String addEvent = '/events/add';
+  static String getUserEvents(String userId) => '/events/$userId';
+  
   // AI scheduling
   static const String generateSchedule = '/chat/generate';
 

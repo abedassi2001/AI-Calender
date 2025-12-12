@@ -22,10 +22,15 @@ class MyApp extends StatelessWidget {
 
 class HomePage extends StatefulWidget {
   final String? authToken;
+  final String? userId;
   final CalendarService calendarService;
 
-  HomePage({super.key, this.authToken, CalendarService? calendarService})
-      : calendarService = calendarService ?? CalendarService(authToken: authToken);
+  HomePage({super.key, this.authToken, this.userId, CalendarService? calendarService})
+      : calendarService = calendarService ?? CalendarService(authToken: authToken) {
+    if (authToken != null) {
+      this.calendarService.authToken = authToken;
+    }
+  }
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -38,16 +43,8 @@ class _HomePageState extends State<HomePage> {
   late final CalendarService _service;
 
   bool _isLoading = false;
-  String _title = 'Study Session';
-  String _timeRange = 'Tomorrow · 3:00 PM – 5:00 PM';
-  String _location = 'Library, 2nd Floor';
-  String _note = 'Includes 15m break; remind me 20m before.';
-  List<String> _timeline = const [
-    '3:00 PM  Deep focus block',
-    '4:00 PM  Break + review notes',
-    '4:15 PM  Flashcards & practice',
-    '5:00 PM  Wrap & summary',
-  ];
+  List<GeneratedEvent> _generatedEvents = [];
+  String _summary = '';
 
   @override
   void initState() {
@@ -110,14 +107,13 @@ class _HomePageState extends State<HomePage> {
                         : const Text('Generate with AI'),
                   ),
                   const SizedBox(height: 18),
-                  _sectionTitle('AI Preview'),
-                  _previewCard(theme),
-                  const SizedBox(height: 16),
+                  if (_generatedEvents.isNotEmpty) ...[
+                    _sectionTitle('AI Generated Events'),
+                    _eventsPreview(theme),
+                    const SizedBox(height: 16),
+                  ],
                   _sectionTitle('Today'),
                   _dayStrip(),
-                  const SizedBox(height: 20),
-                  _sectionTitle('Planned timeline'),
-                  _timelineCard(),
                 ],
               ),
             ),
@@ -130,10 +126,18 @@ class _HomePageState extends State<HomePage> {
         child: SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const CalendarPage()),
+            onPressed: () async {
+              // Navigate to calendar and wait for it to return
+              await Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => CalendarPage(
+                    userId: widget.userId,
+                    authToken: widget.authToken,
+                    calendarService: _service,
+                  ),
+                ),
               );
+              // Calendar page will auto-refresh when opened
             },
             icon: const Icon(Icons.calendar_month_outlined),
             label: const Text('Open Calendar'),
@@ -251,69 +255,116 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _previewCard(ThemeData theme) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(_title, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 6),
-            Row(
+  Widget _eventsPreview(ThemeData theme) {
+    return Column(
+      children: [
+        if (_summary.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE9EDFF),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
               children: [
-                const Icon(Icons.access_time, color: Color(0xFF5B7CFF)),
+                const Icon(Icons.info_outline, color: Color(0xFF5B7CFF), size: 20),
                 const SizedBox(width: 8),
-                Text(_timeRange),
+                Expanded(
+                  child: Text(
+                    _summary,
+                    style: const TextStyle(color: Color(0xFF3B4BA3), fontWeight: FontWeight.w600),
+                  ),
+                ),
               ],
             ),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                const Icon(Icons.pin_drop_outlined, color: Color(0xFF5B7CFF)),
-                const SizedBox(width: 8),
-                Text(_location),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF4F6FB),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
+          ),
+        ..._generatedEvents.asMap().entries.map((entry) {
+          final index = entry.key;
+          final event = entry.value;
+          return Card(
+            margin: EdgeInsets.only(bottom: index < _generatedEvents.length - 1 ? 12 : 0),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.notes_outlined, color: Color(0xFF6B7280)),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(_note)),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          event.title,
+                          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE9EDFF),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          event.displayDate,
+                          style: const TextStyle(
+                            color: Color(0xFF5B7CFF),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(Icons.access_time, color: Color(0xFF5B7CFF), size: 18),
+                      const SizedBox(width: 6),
+                      Text(
+                        event.timeRange,
+                        style: const TextStyle(color: Color(0xFF6B7280)),
+                      ),
+                    ],
+                  ),
+                  if (event.location.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        const Icon(Icons.pin_drop_outlined, color: Color(0xFF5B7CFF), size: 18),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            event.location,
+                            style: const TextStyle(color: Color(0xFF6B7280)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  if (event.description.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      event.description,
+                      style: const TextStyle(color: Color(0xFF6B7280), fontSize: 13),
+                    ),
+                  ],
                 ],
               ),
             ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                OutlinedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.edit_outlined),
-                  label: const Text('Edit details'),
-                  style: OutlinedButton.styleFrom(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: ElevatedButton.icon(
-                        onPressed: _onAddToCalendarPressed,
-                    icon: const Icon(Icons.check_circle_outline),
-                    label: const Text('Add to calendar'),
-                  ),
-                ),
-              ],
+          );
+        }),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _onAddAllToCalendarPressed,
+            icon: const Icon(Icons.add_task),
+            label: Text('Add All ${_generatedEvents.length} Events to Calendar'),
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
             ),
-          ],
+          ),
         ),
-      ),
+      ],
     );
   }
 
@@ -367,29 +418,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _timelineCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: _timeline
-              .map(
-                (line) => ListTile(
-                  dense: true,
-                  leading: const CircleAvatar(
-                    radius: 18,
-                    backgroundColor: Color(0xFFE9EDFF),
-                    child: Icon(Icons.schedule, color: Color(0xFF5B7CFF)),
-                  ),
-                  title: Text(line, style: const TextStyle(fontWeight: FontWeight.w600)),
-                  trailing: const Icon(Icons.drag_indicator_rounded, color: Color(0xFFCBD5E1)),
-                ),
-              )
-              .toList(),
-        ),
-      ),
-    );
-  }
 
   Widget _sectionTitle(String text) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
@@ -409,16 +437,23 @@ class _HomePageState extends State<HomePage> {
       );
       return;
     }
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _generatedEvents = [];
+      _summary = '';
+    });
     try {
       final result = await _service.generateSchedule(prompt);
       setState(() {
-        _title = result.title;
-        _timeRange = result.timeRange;
-        _location = result.location;
-        _note = result.note;
-        _timeline = result.timeline.isEmpty ? ['No steps returned'] : result.timeline;
+        _generatedEvents = result.events;
+        _summary = result.summary;
       });
+      
+      if (_generatedEvents.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No events were generated. Try being more specific.')),
+        );
+      }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to generate schedule: $e')),
@@ -428,37 +463,116 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  String _buildVEventFromPreview() {
-    final description = '$_note\nTimeline:\n${_timeline.join('\n')}';
+  String _buildVEventFromEvent(GeneratedEvent event) {
+    // Parse time from HH:MM format
+    String startTime = '120000';
+    String endTime = '130000';
+    
+    try {
+      final startParts = event.startTime.split(':');
+      final endParts = event.endTime.split(':');
+      
+      if (startParts.length >= 2) {
+        final hour = startParts[0].padLeft(2, '0');
+        final minute = startParts[1].padLeft(2, '0');
+        startTime = '${hour}${minute}00';
+      }
+      
+      if (endParts.length >= 2) {
+        final hour = endParts[0].padLeft(2, '0');
+        final minute = endParts[1].padLeft(2, '0');
+        endTime = '${hour}${minute}00';
+      }
+    } catch (e) {
+      // Use defaults if parsing fails
+    }
+    
+    // Parse date from YYYY-MM-DD format
+    DateTime eventDate;
+    try {
+      eventDate = DateTime.parse(event.date);
+    } catch (e) {
+      eventDate = DateTime.now();
+    }
+    
+    // Format DTSTART and DTEND: YYYYMMDDTHHMMSS
+    final dtstart = '${eventDate.year.toString().padLeft(4, '0')}'
+        '${eventDate.month.toString().padLeft(2, '0')}'
+        '${eventDate.day.toString().padLeft(2, '0')}'
+        'T$startTime';
+    
+    final dtend = '${eventDate.year.toString().padLeft(4, '0')}'
+        '${eventDate.month.toString().padLeft(2, '0')}'
+        '${eventDate.day.toString().padLeft(2, '0')}'
+        'T$endTime';
+    
     final buffer = StringBuffer();
     buffer.writeln('BEGIN:VEVENT');
-    buffer.writeln('SUMMARY:${_title.replaceAll('\n', ' ')}');
-    buffer.writeln('DESCRIPTION:${description.replaceAll('\n', '\\n')}');
-    buffer.writeln('LOCATION:${_location.replaceAll('\n', ' ')}');
+    buffer.writeln('SUMMARY:${event.title.replaceAll('\n', ' ')}');
+    if (event.description.isNotEmpty) {
+      buffer.writeln('DESCRIPTION:${event.description.replaceAll('\n', '\\n')}');
+    }
+    if (event.location.isNotEmpty) {
+      buffer.writeln('LOCATION:${event.location.replaceAll('\n', ' ')}');
+    }
+    buffer.writeln('DTSTART:$dtstart');
+    buffer.writeln('DTEND:$dtend');
     buffer.writeln('END:VEVENT');
     return buffer.toString();
   }
 
-  Future<void> _onAddToCalendarPressed() async {
-    final vevent = _buildVEventFromPreview();
-    // For now use a demo user id; replace with real user id from auth when available
-    const demoUserId = 'demo-user';
+  Future<void> _onAddAllToCalendarPressed() async {
+    if (_generatedEvents.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No events to add')),
+      );
+      return;
+    }
+
+    final String userId = widget.userId ?? '';
+    if (userId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No user logged in')),
+      );
+      return;
+    }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Sending event to backend...')),
+      SnackBar(
+        content: Text('Adding ${_generatedEvents.length} event(s) to calendar...'),
+        duration: const Duration(seconds: 2),
+      ),
     );
 
-    try {
-      await _service.addEvent(demoUserId, vevent);
+    int successCount = 0;
+    int failCount = 0;
+
+    for (final event in _generatedEvents) {
+      try {
+        final vevent = _buildVEventFromEvent(event);
+        await _service.addEvent(userId, vevent);
+        successCount++;
+      } catch (e) {
+        failCount++;
+        print('Failed to add event ${event.title}: $e');
+      }
+    }
+
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Event added to calendar')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to add event: $e')),
+        SnackBar(
+          content: Text(
+            failCount > 0
+                ? 'Added $successCount event(s), $failCount failed'
+                : 'Successfully added all $successCount event(s) to calendar!',
+          ),
+          backgroundColor: failCount > 0 ? Colors.orange : Colors.green,
+          duration: const Duration(seconds: 3),
+        ),
       );
     }
   }
+
 }
 
 class _HintPill extends StatelessWidget {
