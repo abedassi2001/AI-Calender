@@ -34,6 +34,24 @@ class InMemoryDB:
 
     user.events.append(event)
 
+  def update_event(self, user_id: str, event_index: int, event: Dict) -> None:
+    """Update an event at the given index for a user"""
+    user = self._users.get(user_id)
+    if not user:
+      raise ValueError(f"User not found with ID: {user_id}")
+    if event_index < 0 or event_index >= len(user.events):
+      raise ValueError(f"Event index {event_index} out of range")
+    user.events[event_index] = event
+
+  def delete_event(self, user_id: str, event_index: int) -> None:
+    """Delete an event at the given index for a user"""
+    user = self._users.get(user_id)
+    if not user:
+      raise ValueError(f"User not found with ID: {user_id}")
+    if event_index < 0 or event_index >= len(user.events):
+      raise ValueError(f"Event index {event_index} out of range")
+    user.events.pop(event_index)
+
 
 
 # Singleton in-memory store for this demo

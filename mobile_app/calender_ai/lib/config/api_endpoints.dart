@@ -4,6 +4,8 @@ class ApiEndpoints {
 
   static const String addEvent = '/events/add';
   static String getUserEvents(String userId) => '/events/$userId';
+  static const String updateEvent = '/events/update';
+  static String deleteEvent(String userId, int eventIndex) => '/events/$userId/$eventIndex';
   
   // AI scheduling
   static const String generateSchedule = '/chat/generate';

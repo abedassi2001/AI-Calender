@@ -312,6 +312,14 @@ class _HomePageState extends State<HomePage> {
                           ),
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.edit, size: 20, color: Color(0xFF5B7CFF)),
+                        onPressed: () => _showEditGeneratedEventDialog(context, index, event),
+                        tooltip: 'Edit event',
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -559,6 +567,12 @@ class _HomePageState extends State<HomePage> {
     }
 
     if (mounted) {
+      // Clear the generated events and summary after adding
+      setState(() {
+        _generatedEvents = [];
+        _summary = '';
+      });
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -571,6 +585,188 @@ class _HomePageState extends State<HomePage> {
         ),
       );
     }
+  }
+
+  void _showEditGeneratedEventDialog(BuildContext context, int index, GeneratedEvent event) {
+    final titleController = TextEditingController(text: event.title);
+    final locationController = TextEditingController(text: event.location);
+    final descriptionController = TextEditingController(text: event.description);
+    
+    // Parse start time
+    final startTimeParts = event.startTime.split(':');
+    final startHour = int.tryParse(startTimeParts[0]) ?? 12;
+    final startMinute = int.tryParse(startTimeParts.length > 1 ? startTimeParts[1] : '0') ?? 0;
+    TimeOfDay startTime = TimeOfDay(hour: startHour, minute: startMinute);
+    
+    // Parse end time
+    final endTimeParts = event.endTime.split(':');
+    final endHour = int.tryParse(endTimeParts[0]) ?? 13;
+    final endMinute = int.tryParse(endTimeParts.length > 1 ? endTimeParts[1] : '0') ?? 0;
+    TimeOfDay endTime = TimeOfDay(hour: endHour, minute: endMinute);
+    
+    // Parse date
+    DateTime? selectedDate;
+    try {
+      selectedDate = DateTime.parse(event.date);
+    } catch (e) {
+      selectedDate = DateTime.now();
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Edit Event'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleController,
+                  decoration: const InputDecoration(
+                    labelText: 'Title',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: () async {
+                          final picked = await showTimePicker(
+                            context: context,
+                            initialTime: startTime,
+                          );
+                          if (picked != null) {
+                            setDialogState(() => startTime = picked);
+                          }
+                        },
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Start Time',
+                            border: OutlineInputBorder(),
+                          ),
+                          child: Text('${startTime.hour.toString().padLeft(2, '0')}:${startTime.minute.toString().padLeft(2, '0')}'),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: InkWell(
+                        onTap: () async {
+                          final picked = await showTimePicker(
+                            context: context,
+                            initialTime: endTime,
+                          );
+                          if (picked != null) {
+                            setDialogState(() => endTime = picked);
+                          }
+                        },
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'End Time',
+                            border: OutlineInputBorder(),
+                          ),
+                          child: Text('${endTime.hour.toString().padLeft(2, '0')}:${endTime.minute.toString().padLeft(2, '0')}'),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                InkWell(
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: selectedDate!,
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(2030),
+                    );
+                    if (picked != null) {
+                      setDialogState(() => selectedDate = picked);
+                    }
+                  },
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Date',
+                      border: OutlineInputBorder(),
+                    ),
+                    child: Text('${selectedDate!.year}-${selectedDate!.month.toString().padLeft(2, '0')}-${selectedDate!.day.toString().padLeft(2, '0')}'),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: locationController,
+                  decoration: const InputDecoration(
+                    labelText: 'Location',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: descriptionController,
+                  decoration: const InputDecoration(
+                    labelText: 'Description',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 3,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (titleController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Title is required')),
+                  );
+                  return;
+                }
+
+                // Validate that end time is after start time
+                final startMinutes = startTime.hour * 60 + startTime.minute;
+                final endMinutes = endTime.hour * 60 + endTime.minute;
+                if (endMinutes <= startMinutes) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('End time must be after start time')),
+                  );
+                  return;
+                }
+
+                // Create updated event
+                final updatedEvent = GeneratedEvent(
+                  title: titleController.text.trim(),
+                  date: '${selectedDate!.year.toString().padLeft(4, '0')}-'
+                      '${selectedDate!.month.toString().padLeft(2, '0')}-'
+                      '${selectedDate!.day.toString().padLeft(2, '0')}',
+                  startTime: '${startTime.hour.toString().padLeft(2, '0')}:${startTime.minute.toString().padLeft(2, '0')}',
+                  endTime: '${endTime.hour.toString().padLeft(2, '0')}:${endTime.minute.toString().padLeft(2, '0')}',
+                  location: locationController.text.trim(),
+                  description: descriptionController.text.trim(),
+                );
+
+                // Update the event in the list
+                setState(() {
+                  _generatedEvents[index] = updatedEvent;
+                });
+
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Event updated successfully')),
+                );
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
 }

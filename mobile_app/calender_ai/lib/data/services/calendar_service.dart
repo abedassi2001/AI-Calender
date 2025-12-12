@@ -166,5 +166,47 @@ class CalendarService {
 
     throw Exception('Failed to fetch events: ${response.statusCode} ${response.body}');
   }
+
+  /// Update an event at the given index for a user.
+  Future<bool> updateEvent(String userId, int eventIndex, String vevent) async {
+    final uri = Uri.parse('${ApiEndpoints.baseUrl}${ApiEndpoints.updateEvent}');
+
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+      if (authToken != null && authToken!.isNotEmpty) 'Authorization': 'Bearer $authToken',
+    };
+
+    final body = jsonEncode({
+      'user_id': userId,
+      'event_index': eventIndex,
+      'vevent': vevent,
+    });
+
+    final response = await _client.put(uri, headers: headers, body: body);
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return true;
+    }
+
+    throw Exception('Failed to update event: ${response.statusCode} ${response.body}');
+  }
+
+  /// Delete an event at the given index for a user.
+  Future<bool> deleteEvent(String userId, int eventIndex) async {
+    final uri = Uri.parse('${ApiEndpoints.baseUrl}${ApiEndpoints.deleteEvent(userId, eventIndex)}');
+
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+      if (authToken != null && authToken!.isNotEmpty) 'Authorization': 'Bearer $authToken',
+    };
+
+    final response = await _client.delete(uri, headers: headers);
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return true;
+    }
+
+    throw Exception('Failed to delete event: ${response.statusCode} ${response.body}');
+  }
 }
 

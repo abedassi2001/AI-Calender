@@ -55,3 +55,43 @@ def get_user_events(user_id: str):
     
     return user.events
 
+
+class EventUpdate(BaseModel):
+    user_id: str
+    event_index: int
+    vevent: str
+
+
+@router.put("/update")
+def update_event(payload: EventUpdate):
+    """Update an event at the given index for a user."""
+    user = db.get_by_id(payload.user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User not found with ID: {payload.user_id}")
+    
+    try:
+        events_service.update_event_for_user(
+            payload.user_id, 
+            payload.event_index, 
+            {"vevent": payload.vevent}
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    return {"status": "ok", "message": "Event updated successfully"}
+
+
+@router.delete("/{user_id}/{event_index}")
+def delete_event(user_id: str, event_index: int):
+    """Delete an event at the given index for a user."""
+    user = db.get_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User not found with ID: {user_id}")
+    
+    try:
+        events_service.delete_event_for_user(user_id, event_index)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    return {"status": "ok", "message": "Event deleted successfully"}
+

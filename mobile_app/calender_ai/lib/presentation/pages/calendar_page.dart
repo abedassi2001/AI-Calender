@@ -287,6 +287,12 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   Widget _buildEventCard(ThemeData theme, Map<String, String> event, bool isTablet) {
+    // Find the event index
+    final eventIndex = _events.indexWhere((e) {
+      final parsed = _parseVEvent(e['vevent'] as String? ?? '');
+      return parsed['title'] == event['title'] && parsed['time'] == event['time'];
+    });
+    
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -295,19 +301,40 @@ class _CalendarPageState extends State<CalendarPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE9EDFF),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                event['time'] ?? 'TBD',
-                style: theme.textTheme.labelLarge?.copyWith(
-                  color: const Color(0xFF3B4BA3),
-                  fontWeight: FontWeight.w700,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE9EDFF),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      event['time'] ?? 'TBD',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: const Color(0xFF3B4BA3),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert, color: Color(0xFF94A3B8)),
+                  onSelected: (value) {
+                    if (value == 'edit') {
+                      _showEditDialog(context, event, eventIndex >= 0 ? eventIndex : 0);
+                    } else if (value == 'delete') {
+                      _showDeleteDialog(context, eventIndex >= 0 ? eventIndex : 0);
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit), SizedBox(width: 8), Text('Edit')])),
+                    const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, color: Colors.red), SizedBox(width: 8), Text('Delete', style: TextStyle(color: Colors.red))])),
+                  ],
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             Text(
@@ -391,9 +418,24 @@ class _CalendarPageState extends State<CalendarPage> {
             ],
           ),
         ),
-        IconButton(
+        PopupMenuButton<String>(
           icon: const Icon(Icons.more_horiz, color: Color(0xFF94A3B8)),
-          onPressed: () {},
+          onSelected: (value) {
+            // Find the event index by matching title and time
+            final eventIndex = _events.indexWhere((e) {
+              final parsed = _parseVEvent(e['vevent'] as String? ?? '');
+              return parsed['title'] == event['title'] && parsed['time'] == event['time'];
+            });
+            if (value == 'edit') {
+              _showEditDialog(context, event, eventIndex >= 0 ? eventIndex : 0);
+            } else if (value == 'delete') {
+              _showDeleteDialog(context, eventIndex >= 0 ? eventIndex : 0);
+            }
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit), SizedBox(width: 8), Text('Edit')])),
+            const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, color: Colors.red), SizedBox(width: 8), Text('Delete', style: TextStyle(color: Colors.red))])),
+          ],
         ),
       ],
     );
@@ -411,6 +453,7 @@ class _CalendarPageState extends State<CalendarPage> {
     String title = 'Untitled Event';
     String time = 'TBD';
     String location = '';
+    String description = '';
     String? dateString;
 
     final lines = vevent.split('\n');
@@ -419,13 +462,7 @@ class _CalendarPageState extends State<CalendarPage> {
       if (trimmedLine.startsWith('SUMMARY:')) {
         title = trimmedLine.substring(8).trim();
       } else if (trimmedLine.startsWith('DESCRIPTION:')) {
-        // Extract time from description if available
-        final desc = trimmedLine.substring(12).trim().replaceAll('\\n', '\n');
-        // Try to extract time patterns
-        final timeMatch = RegExp(r'(\d{1,2}):(\d{2})\s*(AM|PM)?', caseSensitive: false).firstMatch(desc);
-        if (timeMatch != null) {
-          time = timeMatch.group(0) ?? 'TBD';
-        }
+        description = trimmedLine.substring(12).trim().replaceAll('\\n', '\n');
       } else if (trimmedLine.startsWith('LOCATION:')) {
         location = trimmedLine.substring(9).trim();
       } else if (trimmedLine.startsWith('DTSTART:')) {
@@ -465,6 +502,7 @@ class _CalendarPageState extends State<CalendarPage> {
       'title': title,
       'time': time,
       'location': location,
+      'description': description,
     };
     
     if (dateString != null) {
@@ -671,6 +709,214 @@ class _CalendarPageState extends State<CalendarPage> {
         padding: EdgeInsets.zero,
         onPressed: () {},
         icon: Icon(icon, color: const Color(0xFF475569), size: isTablet ? 24 : 20),
+      ),
+    );
+  }
+
+  void _showEditDialog(BuildContext context, Map<String, String> event, int eventIndex) {
+    final titleController = TextEditingController(text: event['title'] ?? '');
+    final locationController = TextEditingController(text: event['location'] ?? '');
+    final descriptionController = TextEditingController(text: event['description'] ?? '');
+    
+    // Parse time
+    final timeStr = event['time'] ?? '12:00';
+    final timeParts = timeStr.split(':');
+    final hour = int.tryParse(timeParts[0]) ?? 12;
+    final minute = int.tryParse(timeParts.length > 1 ? timeParts[1] : '0') ?? 0;
+    TimeOfDay selectedTime = TimeOfDay(hour: hour, minute: minute);
+    
+    // Parse date
+    DateTime? selectedDate;
+    if (event['date'] != null) {
+      try {
+        selectedDate = DateTime.parse(event['date']!);
+      } catch (e) {
+        selectedDate = DateTime.now();
+      }
+    } else {
+      selectedDate = DateTime.now();
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Edit Event'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleController,
+                  decoration: const InputDecoration(
+                    labelText: 'Title',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: () async {
+                          final picked = await showTimePicker(
+                            context: context,
+                            initialTime: selectedTime,
+                          );
+                          if (picked != null) {
+                            setDialogState(() => selectedTime = picked);
+                          }
+                        },
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Time',
+                            border: OutlineInputBorder(),
+                          ),
+                          child: Text('${selectedTime.hour.toString().padLeft(2, '0')}:${selectedTime.minute.toString().padLeft(2, '0')}'),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: InkWell(
+                        onTap: () async {
+                          final picked = await showDatePicker(
+                            context: context,
+                            initialDate: selectedDate!,
+                            firstDate: DateTime(2020),
+                            lastDate: DateTime(2030),
+                          );
+                          if (picked != null) {
+                            setDialogState(() => selectedDate = picked);
+                          }
+                        },
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Date',
+                            border: OutlineInputBorder(),
+                          ),
+                          child: Text('${selectedDate!.year}-${selectedDate!.month.toString().padLeft(2, '0')}-${selectedDate!.day.toString().padLeft(2, '0')}'),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: locationController,
+                  decoration: const InputDecoration(
+                    labelText: 'Location',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: descriptionController,
+                  decoration: const InputDecoration(
+                    labelText: 'Description',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 3,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (titleController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Title is required')),
+                  );
+                  return;
+                }
+
+                // Build VEVENT string
+                final dateStr = '${selectedDate!.year.toString().padLeft(4, '0')}'
+                    '${selectedDate!.month.toString().padLeft(2, '0')}'
+                    '${selectedDate!.day.toString().padLeft(2, '0')}';
+                final timeStr = '${selectedTime.hour.toString().padLeft(2, '0')}'
+                    '${selectedTime.minute.toString().padLeft(2, '0')}00';
+                final dtstart = '${dateStr}T$timeStr';
+                
+                // Calculate end time (default 1 hour duration)
+                final endHour = (selectedTime.hour + 1) % 24;
+                final endTimeStr = '${endHour.toString().padLeft(2, '0')}'
+                    '${selectedTime.minute.toString().padLeft(2, '0')}00';
+                final dtend = '${dateStr}T$endTimeStr';
+
+                final vevent = '''BEGIN:VEVENT
+SUMMARY:${titleController.text.trim().replaceAll('\n', ' ')}
+DESCRIPTION:${descriptionController.text.trim().replaceAll('\n', '\\n')}
+LOCATION:${locationController.text.trim().replaceAll('\n', ' ')}
+DTSTART:$dtstart
+DTEND:$dtend
+END:VEVENT''';
+
+                try {
+                  await _service.updateEvent(widget.userId!, eventIndex, vevent);
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    _loadEvents();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Event updated successfully')),
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Failed to update event: $e')),
+                    );
+                  }
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDeleteDialog(BuildContext context, int eventIndex) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Event'),
+        content: const Text('Are you sure you want to delete this event?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              try {
+                await _service.deleteEvent(widget.userId!, eventIndex);
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  _loadEvents();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Event deleted successfully')),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed to delete event: $e')),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
       ),
     );
   }
