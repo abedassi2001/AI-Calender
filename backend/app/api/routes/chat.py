@@ -39,119 +39,204 @@ def get_gemini_model():
             _gemini_model = genai.GenerativeModel('gemini-pro')
     return _gemini_model
 
-def call_ollama(prompt: str, model: str = "llama3.2") -> str:
-    """Call Ollama local LLM (completely free, runs locally)"""
-    try:
-        response = requests.post(
-            f"{OLLAMA_BASE_URL}/api/generate",
-            json={
-                "model": model,
-                "prompt": prompt,
-                "stream": False
-            },
-            timeout=60
-        )
-        if response.status_code == 200:
-            return response.json().get("response", "")
-        return None
-    except Exception as e:
-        print(f"Ollama error: {e}")
-        return None
+def call_ollama(prompt: str, model: str = None) -> str:
+    """Call Ollama local LLM (completely free, runs locally)
+    Tries multiple models in order of preference.
+    """
+    # Try models in order of preference (best quality first)
+    models_to_try = model and [model] or ["llama3.2", "llama3", "mistral", "codellama", "llama2"]
+    
+    for model_name in models_to_try:
+        try:
+            print(f"Trying Ollama model: {model_name}")
+            response = requests.post(
+                f"{OLLAMA_BASE_URL}/api/generate",
+                json={
+                    "model": model_name,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.3,  # Lower temperature for more structured output
+                        "num_predict": 2000  # Max tokens
+                    }
+                },
+                timeout=90  # Longer timeout for larger models
+            )
+            if response.status_code == 200:
+                result = response.json().get("response", "")
+                if result:
+                    print(f"✅ Successfully got response from Ollama ({model_name})")
+                    return result
+            else:
+                print(f"Ollama model {model_name} returned status {response.status_code}")
+        except requests.exceptions.ConnectionError:
+            print(f"Ollama not running or model {model_name} not available. Make sure Ollama is installed and running.")
+            return None  # Don't try other models if Ollama isn't running
+        except Exception as e:
+            print(f"Error with Ollama model {model_name}: {e}")
+            continue  # Try next model
+    
+    return None
 
 
 def _create_fallback_events(prompt: str, today: datetime) -> ScheduleResponse:
     """
-    Create simple events from prompt when OpenAI is unavailable.
-    This is a basic fallback that extracts keywords and creates events.
+    Smart fallback that understands natural language and creates structured events.
+    Works without any AI APIs - uses pattern matching and intelligent parsing.
     """
     prompt_lower = prompt.lower()
     events = []
+    current_time = 6  # Start at 6 AM for morning routines
     
-    # Detect common patterns
-    if "pray" in prompt_lower or "prayer" in prompt_lower:
-        if "all" in prompt_lower or "every" in prompt_lower:
-            # Add all prayer times
+    # Helper to add event with auto-incrementing time
+    def add_event(title, start_hour, start_min, duration_min=30, location="", desc=""):
+        start_time_str = f"{start_hour:02d}:{start_min:02d}"
+        end_hour = start_hour + (start_min + duration_min) // 60
+        end_min = (start_min + duration_min) % 60
+        end_time_str = f"{end_hour:02d}:{end_min:02d}"
+        events.append(EventItem(
+            title=title,
+            date=today.strftime('%Y-%m-%d'),
+            start_time=start_time_str,
+            end_time=end_time_str,
+            location=location,
+            description=desc or title
+        ))
+        return end_hour, end_min
+    
+    # Parse time mentions
+    import re
+    time_patterns = {
+        r'(\d{1,2})\s*(am|pm|:|\s)': None,  # Will extract in code
+        r'morning': (6, 0),
+        r'afternoon': (13, 0),
+        r'evening': (17, 0),
+        r'night': (20, 0),
+        r'early\s*morning': (5, 0),
+        r'late\s*night': (22, 0),
+    }
+    
+    # Extract explicit times
+    time_matches = re.findall(r'(\d{1,2}):?(\d{2})?\s*(am|pm)?', prompt_lower)
+    parsed_times = []
+    for match in time_matches:
+        hour = int(match[0])
+        minute = int(match[1]) if match[1] else 0
+        if match[2] == 'pm' and hour < 12:
+            hour += 12
+        elif match[2] == 'am' and hour == 12:
+            hour = 0
+        parsed_times.append((hour, minute))
+    
+    # MORNING ROUTINE DETECTION
+    if "wake" in prompt_lower or ("morning" in prompt_lower and "routine" in prompt_lower):
+        hour, minute = add_event("Wake Up", 6, 0, 15, "Home", "Morning wake up")
+        current_time = hour
+        current_min = minute
+    
+    # PRAYER DETECTION - Smart prayer parsing
+    prayer_keywords = ["pray", "prayer", "salah", "salat", "namaz"]
+    has_prayer = any(kw in prompt_lower for kw in prayer_keywords)
+    
+    if has_prayer:
+        # Check for "all prayers" or similar
+        if any(word in prompt_lower for word in ["all", "every", "all of", "each"]):
+            # All 5 prayers
             prayers = [
-                ("Fajr Prayer", "05:30", "06:00"),
-                ("Dhuhr Prayer", "12:30", "13:00"),
-                ("Asr Prayer", "15:30", "16:00"),
-                ("Maghrib Prayer", "18:30", "19:00"),
-                ("Isha Prayer", "20:00", "20:30"),
+                ("Fajr Prayer", 5, 30, 30),
+                ("Dhuhr Prayer", 12, 30, 30),
+                ("Asr Prayer", 15, 30, 30),
+                ("Maghrib Prayer", 18, 30, 30),
+                ("Isha Prayer", 20, 0, 30),
             ]
-            for title, start, end in prayers:
-                events.append(EventItem(
-                    title=title,
-                    date=today.strftime('%Y-%m-%d'),
-                    start_time=start,
-                    end_time=end,
-                    location="",
-                    description="Prayer time"
-                ))
+            for title, h, m, d in prayers:
+                add_event(title, h, m, d, "", "Prayer time")
         else:
-            # Single prayer
-            events.append(EventItem(
-                title="Prayer",
-                date=today.strftime('%Y-%m-%d'),
-                start_time="12:00",
-                end_time="12:30",
-                location="",
-                description="Prayer time"
-            ))
+            # Single prayer - infer from time or use default
+            if "fajr" in prompt_lower or "dawn" in prompt_lower:
+                add_event("Fajr Prayer", 5, 30, 30)
+            elif "dhuhr" in prompt_lower or "zuhr" in prompt_lower or "noon" in prompt_lower:
+                add_event("Dhuhr Prayer", 12, 30, 30)
+            elif "asr" in prompt_lower or "afternoon" in prompt_lower:
+                add_event("Asr Prayer", 15, 30, 30)
+            elif "maghrib" in prompt_lower or "sunset" in prompt_lower:
+                add_event("Maghrib Prayer", 18, 30, 30)
+            elif "isha" in prompt_lower or "night" in prompt_lower:
+                add_event("Isha Prayer", 20, 0, 30)
+            else:
+                # Default prayer time
+                add_event("Prayer", 12, 0, 30)
     
-    if "wake" in prompt_lower or "morning" in prompt_lower:
-        events.append(EventItem(
-            title="Wake Up",
-            date=today.strftime('%Y-%m-%d'),
-            start_time="06:00",
-            end_time="06:15",
-            location="Home",
-            description="Morning wake up"
-        ))
+    # SEQUENTIAL ACTIVITY PARSING
+    # Look for "and", "then", "after" to chain events
+    connectors = [" and ", " then ", " after ", ", then ", ", and ", " followed by "]
+    has_connectors = any(conn in prompt_lower for conn in connectors)
     
-    if "study" in prompt_lower or "learn" in prompt_lower:
-        events.append(EventItem(
-            title="Study Session",
-            date=today.strftime('%Y-%m-%d'),
-            start_time="09:00",
-            end_time="11:00",
-            location="",
-            description="Study time"
-        ))
+    # BREAKFAST/MEAL
+    if any(word in prompt_lower for word in ["breakfast", "eat", "meal", "food", "lunch", "dinner"]):
+        if "breakfast" in prompt_lower:
+            add_event("Breakfast", 8, 0, 30, "Kitchen", "Morning meal")
+        elif "lunch" in prompt_lower:
+            add_event("Lunch", 13, 0, 45, "", "Midday meal")
+        elif "dinner" in prompt_lower:
+            add_event("Dinner", 19, 0, 60, "", "Evening meal")
+        else:
+            add_event("Meal", 8, 0, 30, "Kitchen", "Meal time")
     
-    if "breakfast" in prompt_lower or "eat" in prompt_lower:
-        events.append(EventItem(
-            title="Meal",
-            date=today.strftime('%Y-%m-%d'),
-            start_time="08:00",
-            end_time="08:30",
-            location="Kitchen",
-            description="Meal time"
-        ))
+    # STUDY/LEARNING
+    if any(word in prompt_lower for word in ["study", "learn", "homework", "read", "research"]):
+        # Try to extract duration
+        duration = 120  # Default 2 hours
+        if "hour" in prompt_lower:
+            hour_match = re.search(r'(\d+)\s*hour', prompt_lower)
+            if hour_match:
+                duration = int(hour_match.group(1)) * 60
+        
+        # Try to extract time
+        if parsed_times:
+            h, m = parsed_times[0]
+            add_event("Study Session", h, m, duration, "", "Study time")
+        else:
+            add_event("Study Session", 9, 0, duration, "", "Study time")
     
-    if "exercise" in prompt_lower or "workout" in prompt_lower or "gym" in prompt_lower:
-        events.append(EventItem(
-            title="Exercise",
-            date=today.strftime('%Y-%m-%d'),
-            start_time="07:00",
-            end_time="08:00",
-            location="Gym",
-            description="Physical activity"
-        ))
+    # EXERCISE/WORKOUT
+    if any(word in prompt_lower for word in ["exercise", "workout", "gym", "run", "jog", "fitness"]):
+        add_event("Exercise", 7, 0, 60, "Gym", "Physical activity")
     
-    # If no patterns matched, create a generic event
+    # SHOWER/BATH
+    if any(word in prompt_lower for word in ["shower", "bath", "wash"]):
+        add_event("Shower", 7, 30, 20, "Bathroom", "Personal hygiene")
+    
+    # WORK
+    if any(word in prompt_lower for word in ["work", "job", "office", "meeting"]):
+        if parsed_times:
+            h, m = parsed_times[0]
+            add_event("Work", h, m, 480, "Office", "Work time")  # 8 hours
+        else:
+            add_event("Work", 9, 0, 480, "Office", "Work time")
+    
+    # If no specific patterns matched, create intelligent events from keywords
     if not events:
-        events.append(EventItem(
-            title=prompt[:50] if len(prompt) > 50 else prompt,
-            date=today.strftime('%Y-%m-%d'),
-            start_time="12:00",
-            end_time="13:00",
-            location="",
-            description=prompt
-        ))
+        # Try to extract main activity
+        words = prompt_lower.split()
+        # Remove common words
+        stop_words = {"i", "want", "to", "in", "the", "and", "a", "an", "at", "on", "for", "with"}
+        meaningful_words = [w for w in words if w not in stop_words and len(w) > 2]
+        
+        if meaningful_words:
+            title = " ".join(meaningful_words[:4]).title()
+            add_event(title, 12, 0, 60, "", prompt)
+        else:
+            # Last resort
+            title = prompt[:50] if len(prompt) > 50 else prompt
+            add_event(title, 12, 0, 60, "", prompt)
+    
+    # Sort events by time
+    events.sort(key=lambda e: (e.date, e.start_time))
     
     return ScheduleResponse(
         events=events,
-        summary=f"⚠️ Created {len(events)} event(s) using fallback mode. OpenAI quota exceeded - add credits at https://platform.openai.com/account/billing"
+        summary=f"✅ Created {len(events)} event(s) using smart fallback mode (no AI needed)"
     )
 
 def is_valid_openai_key(api_key: str) -> bool:
@@ -176,44 +261,62 @@ def get_openai_client():
 
 def _build_ai_prompt(user_prompt: str, today: datetime, tomorrow: datetime) -> str:
     """Build the AI prompt for event generation"""
-    return f"""You are a helpful calendar assistant. The user wants to schedule activities.
+    today_str = today.strftime('%Y-%m-%d')
+    tomorrow_str = tomorrow.strftime('%Y-%m-%d')
+    weekday = today.strftime('%A')
+    
+    return f"""You are an intelligent calendar assistant that understands natural language and creates well-organized calendar events.
 
-User request: "{user_prompt}"
+USER REQUEST: "{user_prompt}"
 
-Today's date: {today.strftime('%Y-%m-%d')}
-Tomorrow's date: {tomorrow.strftime('%Y-%m-%d')}
+CONTEXT:
+- Today is {weekday}, {today_str}
+- Tomorrow is {tomorrow_str}
+- Current time context: Use today's date unless the user specifies otherwise (e.g., "tomorrow", "Monday", "next week")
 
-Analyze the user's request and break it down into multiple calendar events. For example:
-- If they mention "pray all prayers", create separate events for Fajr, Dhuhr, Asr, Maghrib, Isha
-- If they mention "morning routine", break it into wake up, breakfast, exercise, etc.
-- If they mention multiple activities, create separate events for each
+YOUR TASK:
+Carefully analyze the user's request and break it down into logical, sequential calendar events. Understand the intent behind their words.
 
-Return a JSON array of events. Each event should have:
-- title: Short, clear title
-- date: YYYY-MM-DD format (use today or tomorrow based on context, or infer from "Monday", "next week", etc.)
-- start_time: HH:MM format (24-hour)
-- end_time: HH:MM format (24-hour)
-- location: Optional location if mentioned
-- description: Brief description of the activity
+EXAMPLES OF UNDERSTANDING:
+- "I want to wake up in the morning and pray all prayers" → Create: Wake Up, Fajr, Dhuhr, Asr, Maghrib, Isha
+- "Study from 8 to 10 AM then have breakfast" → Create: Study Session (08:00-10:00), Breakfast (10:00-10:30)
+- "Morning routine: wake up, exercise, shower, breakfast" → Create 4 separate events in sequence
+- "Pray all prayers" → Create all 5 prayer times (Fajr, Dhuhr, Asr, Maghrib, Isha)
+- "I need to work on my project tomorrow afternoon" → Create: Work on Project (tomorrow, 13:00-17:00)
 
-If the user mentions relative times like "morning", "afternoon", "evening", use appropriate times:
-- Morning: 6:00-12:00
-- Afternoon: 12:00-17:00
-- Evening: 17:00-21:00
-- Night: 21:00-23:00
+TIME INTERPRETATION:
+- "morning" = 06:00-12:00
+- "afternoon" = 12:00-17:00  
+- "evening" = 17:00-21:00
+- "night" = 21:00-23:00
+- "early morning" = 05:00-08:00
+- "late night" = 22:00-23:59
 
-For prayers, use standard times:
-- Fajr: 5:30-6:00
+PRAYER TIMES (if mentioned):
+- Fajr: 05:30-06:00
 - Dhuhr: 12:30-13:00
 - Asr: 15:30-16:00
 - Maghrib: 18:30-19:00
 - Isha: 20:00-20:30
 
-Return ONLY valid JSON array, no other text. Example format:
+IMPORTANT RULES:
+1. Break down complex requests into multiple events
+2. Sequence events logically (e.g., wake up before breakfast)
+3. Use realistic durations (e.g., breakfast: 30 min, study: 1-2 hours)
+4. If no time specified, infer reasonable times based on activity type
+5. If no date specified, use today
+6. Make titles clear and descriptive
+7. Add helpful descriptions
+
+OUTPUT FORMAT:
+Return ONLY a valid JSON array. No markdown, no explanations, just JSON.
+
 [
-  {{"title": "Wake Up", "date": "2025-12-10", "start_time": "06:00", "end_time": "06:15", "location": "", "description": "Wake up and morning routine"}},
-  {{"title": "Fajr Prayer", "date": "2025-12-10", "start_time": "06:15", "end_time": "06:30", "location": "", "description": "Morning prayer"}}
-]"""
+  {{"title": "Event Title", "date": "YYYY-MM-DD", "start_time": "HH:MM", "end_time": "HH:MM", "location": "", "description": "Description"}},
+  {{"title": "Next Event", "date": "YYYY-MM-DD", "start_time": "HH:MM", "end_time": "HH:MM", "location": "", "description": "Description"}}
+]
+
+Now analyze the user's request and create the events:"""
 
 def _parse_ai_response(content: str, today: datetime) -> list:
     """Parse AI response and extract events"""
@@ -267,7 +370,7 @@ def _parse_ai_response(content: str, today: datetime) -> list:
 @router.post("/generate", response_model=ScheduleResponse)
 def generate_schedule(payload: ScheduleRequest):
     """
-    Generate multiple calendar events from natural language description.
+    Generate multiple calendar events from natural language description using Ollama (local LLM).
     Example: "I want to wake up at 6 AM, pray Fajr, then study from 8-10 AM"
     """
     try:
@@ -275,189 +378,26 @@ def generate_schedule(payload: ScheduleRequest):
         today = datetime.now()
         tomorrow = today + timedelta(days=1)
         
-        # Check if OpenAI API key is valid (starts with "sk-")
-        api_key = os.getenv("OPENAI_API_KEY")
-        has_valid_openai_key = api_key and is_valid_openai_key(api_key)
+        # Build the prompt
+        prompt = _build_ai_prompt(payload.prompt, today, tomorrow)
         
-        # Try OpenAI first (only if we have a valid key)
-        client = None
-        if has_valid_openai_key:
-            client = get_openai_client()
-        
-        if not client:
-            # No OpenAI, try alternatives directly
-            gemini_model = get_gemini_model()
-            if gemini_model:
-                try:
-                    prompt = _build_ai_prompt(payload.prompt, today, tomorrow)
-                    gemini_response = gemini_model.generate_content(prompt)
-                    if gemini_response and gemini_response.text:
-                        events_data = _parse_ai_response(gemini_response.text, today)
-                        if events_data:
-                            return ScheduleResponse(
-                                events=events_data,
-                                summary=f"✅ Generated {len(events_data)} event(s) using Google Gemini"
-                            )
-                except Exception as e:
-                    print(f"Gemini error: {e}")
-            
-            # Try Ollama
-            prompt = _build_ai_prompt(payload.prompt, today, tomorrow)
-            ollama_response = call_ollama(prompt)
-            if ollama_response:
+        # Try Ollama first (local, free, no keys needed)
+        print("Using Ollama (local LLM, no keys needed)...")
+        ollama_response = call_ollama(prompt)
+        if ollama_response:
+            try:
                 events_data = _parse_ai_response(ollama_response, today)
                 if events_data:
                     return ScheduleResponse(
                         events=events_data,
-                        summary=f"✅ Generated {len(events_data)} event(s) using Ollama"
+                        summary=f"✅ Generated {len(events_data)} event(s) using Ollama (local, free)"
                     )
-            
-            # Fallback
-            return _create_fallback_events(payload.prompt, today)
+            except Exception as ollama_error:
+                print(f"Ollama parsing error: {ollama_error}")
         
-        # Build the prompt
-        prompt = _build_ai_prompt(payload.prompt, today, tomorrow)
-        
-        # Try different models in order of preference
-        models_to_try = ["gpt-4o-mini", "gpt-3.5-turbo"]
-        response = None
-        last_error = None
-        quota_exceeded = False
-        
-        for model_name in models_to_try:
-            try:
-                response = client.chat.completions.create(
-                    model=model_name,
-                    messages=[
-                        {"role": "system", "content": "You are a helpful calendar assistant. Always return valid JSON arrays."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.7,
-                    max_tokens=2000,
-                )
-                break  # Success, exit the loop
-            except Exception as openai_error:
-                last_error = openai_error
-                error_str = str(openai_error)
-                print(f"Failed to use model {model_name}: {error_str}")
-                
-                # Check for quota exceeded
-                if "429" in error_str or "insufficient_quota" in error_str or "quota" in error_str.lower():
-                    quota_exceeded = True
-                    break  # Don't try other models if quota is exceeded
-                
-                continue  # Try next model
-        
-        # Handle OpenAI errors - try free alternatives (no keys needed!)
-        if response is None:
-            error_msg = str(last_error) if last_error else "Unknown error"
-            print(f"OpenAI failed: {error_msg}. Trying free alternatives (no API keys needed)...")
-            
-            # Try Ollama first (completely free, no keys, runs locally)
-            print("Trying Ollama (local LLM, no keys needed)...")
-            ollama_response = call_ollama(prompt)
-            if ollama_response:
-                try:
-                    events_data = _parse_ai_response(ollama_response, today)
-                    if events_data:
-                        return ScheduleResponse(
-                            events=events_data,
-                            summary=f"✅ Generated {len(events_data)} event(s) using Ollama (local, free, no keys needed!)"
-                        )
-                except Exception as ollama_error:
-                    print(f"Ollama parsing error: {ollama_error}")
-            
-            # Try Google Gemini (free tier, needs GEMINI_API_KEY)
-            gemini_model = get_gemini_model()
-            if gemini_model:
-                try:
-                    print("Trying Google Gemini (free tier)...")
-                    gemini_response = gemini_model.generate_content(prompt)
-                    if gemini_response and gemini_response.text:
-                        content = gemini_response.text.strip()
-                        print(f"Gemini response received: {content[:200]}")
-                        events_data = _parse_ai_response(content, today)
-                        if events_data:
-                            return ScheduleResponse(
-                                events=events_data,
-                                summary=f"✅ Generated {len(events_data)} event(s) using Google Gemini (free tier)"
-                            )
-                except Exception as gemini_error:
-                    print(f"Gemini error: {gemini_error}")
-            
-            # Fallback to keyword-based events (always works, no keys needed)
-            print("Using fallback keyword-based generation (no keys needed)...")
-            return _create_fallback_events(payload.prompt, today)
-
-        if not response.choices or not response.choices[0].message:
-            raise HTTPException(status_code=500, detail="OpenAI returned empty response")
-        
-        content = response.choices[0].message.content
-        if not content:
-            raise HTTPException(status_code=500, detail="OpenAI returned empty content")
-        
-        content = content.strip()
-        
-        # Clean up the response (remove markdown code blocks if present)
-        if content.startswith("```json"):
-            content = content[7:]
-        if content.startswith("```"):
-            content = content[3:]
-        if content.endswith("```"):
-            content = content[:-3]
-        content = content.strip()
-        
-        print(f"AI Response content (first 500 chars): {content[:500]}")  # Debug log
-
-        # Parse JSON
-        events_data = None
-        try:
-            events_data = json.loads(content)
-        except json.JSONDecodeError as e:
-            # Fallback: try to extract JSON from the response
-            import re
-            json_match = re.search(r'\[.*\]', content, re.DOTALL)
-            if json_match:
-                try:
-                    events_data = json.loads(json_match.group(0))
-                except json.JSONDecodeError:
-                    raise HTTPException(
-                        status_code=500, 
-                        detail=f"Failed to parse AI response as JSON. Error: {str(e)}. Content: {content[:200]}"
-                    )
-            else:
-                raise HTTPException(
-                    status_code=500, 
-                    detail=f"Failed to parse AI response: {str(e)}. Content preview: {content[:200]}"
-                )
-        
-        if not isinstance(events_data, list):
-            raise HTTPException(status_code=500, detail="AI response is not a list of events")
-
-        # Convert to EventItem objects
-        events = []
-        for event_data in events_data:
-            try:
-                event = EventItem(
-                    title=event_data.get("title", "Untitled Event"),
-                    date=event_data.get("date", today.strftime('%Y-%m-%d')),
-                    start_time=event_data.get("start_time", "12:00"),
-                    end_time=event_data.get("end_time", "13:00"),
-                    location=event_data.get("location", ""),
-                    description=event_data.get("description", ""),
-                )
-                events.append(event)
-            except Exception as e:
-                # Skip invalid events
-                continue
-
-        if not events:
-            raise HTTPException(status_code=500, detail="AI generated no valid events")
-
-        return ScheduleResponse(
-            events=events,
-            summary=f"Generated {len(events)} event(s) from your request"
-        )
+        # Fallback to smart keyword-based generation
+        print("Ollama unavailable, using smart fallback...")
+        return _create_fallback_events(payload.prompt, today)
 
     except HTTPException:
         raise
